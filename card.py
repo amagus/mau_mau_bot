@@ -145,7 +145,7 @@ STICKERS_GREY = {
     'g_7': 'BQADAQADyAEAAj4q6QABkZnPQPowL8YC',
     'g_8': 'BQADAQADygEAAj4q6QABald8BX6SRxsC',
     'g_9': 'BQADAQADzAEAAj4q6QABtoMIjJmFqGIC',
-    'g_draw': 'BQADBAADdwIAAl9XmQABOHEpxSztCf8C',
+    'g_draw': 'BQADAQADzgEAAj4q6QAB1xJsyCjiJm8C',
     'g_skip': 'BQADAQAD0gEAAj4q6QABoZt1xRj9QaMC',
     'g_reverse': 'BQADAQAD0AEAAj4q6QABz0CqhZvhVcYC',
     'r_0': 'BQADAQAD1AEAAj4q6QABsEm_32dfn6MC',
