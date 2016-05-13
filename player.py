@@ -19,6 +19,7 @@
 
 import logging
 from datetime import datetime
+from credentials import WAIT_TIME
 
 import card as c
 
@@ -55,7 +56,8 @@ class Player(object):
         self.drew = False
         self.anti_cheat = 0
         self.turn_started = datetime.now()
-        self.waiting_time = 90
+        self.waiting_time = WAIT_TIME
+        self.uno = False
 
     def leave(self):
         """ Leave the current game """
@@ -112,18 +114,23 @@ class Player(object):
         if self.drew:
             cards = self.cards[-1:]
 
-        # You may only play a +4 if you have no cards of the correct color
+        # You may only play a +4 if you have no cards to play
         self.bluffing = False
         for card in cards:
             if self.card_playable(card, playable):
                 self.logger.debug("Matching!")
                 playable.append(card)
-
-                self.bluffing = (self.bluffing or card.color == last.color)
-
+        
+        self.bluffing = False;
+        
+        for card in playable:
+        	if(card.special != c.DRAW_FOUR):
+        		self.bluffing = True
+                        
+        #self.bluffing = len(playable) > 0
         # You may not play a chooser or +4 as your last card
-        if len(self.cards) == 1 and self.cards[0].special:
-            return list()
+        #if len(self.cards) == 1 and self.cards[0].special:
+        #    return list()
 
         return playable
 
@@ -138,17 +145,28 @@ class Player(object):
                 not card.special):
             self.logger.debug("Card's color or value doesn't match")
             is_playable = False
-        elif last.value == c.DRAW_TWO and not \
-                card.value == c.DRAW_TWO and self.game.draw_counter:
-            self.logger.debug("Player has to draw and can't counter")
-            is_playable = False
+        elif last.value == c.DRAW_TWO and self.game.draw_counter:
+        	if(card.value != c.DRAW_TWO and card.special != c.DRAW_FOUR):
+        		is_playable = False
+        	if(self.game.fouyer and card.special == c.DRAW_FOUR):
+        		is_playable = False
         elif last.special == c.DRAW_FOUR and self.game.draw_counter:
-            self.logger.debug("Player has to draw and can't counter")
-            is_playable = False
-        elif (last.special == c.CHOOSE or last.special == c.DRAW_FOUR) and \
-                (card.special == c.CHOOSE or card.special == c.DRAW_FOUR):
-            self.logger.debug("Can't play colorchooser on another one")
-            is_playable = False
+        	is_playable = ((card.value == c.DRAW_TWO and card.color == last.color) or card.special == c.DRAW_FOUR)
+#         
+#         
+#         
+#         
+#          and not \
+#                 card.value == c.DRAW_TWO and self.game.draw_counter:
+#             self.logger.debug("Player has to draw and can't counter")
+#             is_playable = False
+#         elif last.special == c.DRAW_FOUR and not card.value == c.DRAW_TWO and self.game.draw_counter:
+#             self.logger.debug("Player has to draw and can't counter")
+#             is_playable = False
+        #elif (last.special == c.CHOOSE or last.special == c.DRAW_FOUR) and \
+        #        (card.special == c.CHOOSE or card.special == c.DRAW_FOUR):
+        #    self.logger.debug("Can't play colorchooser on another one")
+        #    is_playable = False
         elif not last.color or card in playable:
             self.logger.debug("Last card has no color or the card was "
                               "already added to the list")

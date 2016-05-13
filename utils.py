@@ -41,10 +41,10 @@ def display_name(user):
 def display_color(color):
     """ Convert a color code to actual color name """
     if color == "r":
-        return Emoji.HEAVY_BLACK_HEART + " Red"
+        return Emoji.HEAVY_BLACK_HEART + " Vermelho"
     if color == "b":
-        return Emoji.BLUE_HEART + " Blue"
+        return Emoji.BLUE_HEART + " Azul"
     if color == "g":
-        return Emoji.GREEN_HEART + " Green"
+        return Emoji.GREEN_HEART + " Verde"
     if color == "y":
-        return Emoji.YELLOW_HEART + " Yellow"
+        return Emoji.YELLOW_HEART + " Amarelo"

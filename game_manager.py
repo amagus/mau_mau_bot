@@ -73,7 +73,22 @@ class GameManager(object):
         players.append(player)
         self.userid_current[user.id] = player
         return True
+    
+    def get_player_by_id(self, user, chat_id):
+        try:
+            players = self.userid_players[user.id]
+            games = self.chatid_games[chat_id]
 
+            for player in players:
+                for game in games:
+                    if player in game.players:
+                        return player
+            else:
+                return None
+
+        except KeyError:
+            return None
+            
     def leave_game(self, user, chat_id):
         """ Remove a player from its current game """
         try:

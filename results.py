@@ -31,7 +31,7 @@ def add_choose_color(results):
         results.append(
             InlineQueryResultArticle(
                 id=color,
-                title="Choose Color",
+                title="Escolha cor",
                 description=display_color(color),
                 input_message_content=
                 InputTextMessageContent(display_color(color))
@@ -48,14 +48,14 @@ def add_other_cards(playable, player, results, game):
     results.append(
         InlineQueryResultArticle(
             "hand",
-            title="Cards (tap for game state):",
+            title="Cartas (selecione para estado do jogo):",
             description=', '.join([repr(card) for card in
                                    list_subtract(player.cards, playable)]),
             input_message_content=InputTextMessageContent(
-                "Current player: " + display_name(game.current_player.user) +
+                "Jogando agora: " + display_name(game.current_player.user) +
                 "\n" +
-                "Last card: " + repr(game.last_card) + "\n" +
-                "Players: " + " -> ".join(players))
+                "Última carta: " + repr(game.last_card) + "\n" +
+                "Jogadores: " + " -> ".join(players))
         )
     )
 
@@ -71,11 +71,9 @@ def add_no_game(results):
     results.append(
         InlineQueryResultArticle(
             "nogame",
-            title="You are not playing",
+            title="Você não está jogando!",
             input_message_content=
-            InputTextMessageContent('Not playing right now. Use /new to start '
-                                    'a game or /join to join the current game '
-                                    'in this group')
+            InputTextMessageContent('Você não está jogando! Use /new ou /join.')
         )
     )
 
@@ -84,9 +82,9 @@ def add_not_started(results):
     results.append(
         InlineQueryResultArticle(
             "nogame",
-            title="The game wasn't started yet",
+            title="O jogo ainda não começou",
             input_message_content=
-            InputTextMessageContent('Start the game with /start')
+            InputTextMessageContent('Comece o jogo com /start ou /startfouyer')
         )
     )
 
@@ -96,7 +94,7 @@ def add_draw(player, results):
         Sticker(
             "draw", sticker_file_id=c.STICKERS['option_draw'],
             input_message_content=
-            InputTextMessageContent('Drawing %d card(s)'
+            InputTextMessageContent('Comprando %d carta(s)'
                                     % (player.game.draw_counter or 1))
         )
     )
@@ -110,10 +108,10 @@ def add_gameinfo(game, results):
             "gameinfo",
             sticker_file_id=c.STICKERS['option_info'],
             input_message_content=InputTextMessageContent(
-                "Current player: " + display_name(game.current_player.user) +
+                "Jogando agora: " + display_name(game.current_player.user) +
                 "\n" +
-                "Last card: " + repr(game.last_card) + "\n" +
-                "Players: " + " -> ".join(players))
+                "Última carta: " + repr(game.last_card) + "\n" +
+                "Jogadores: " + " -> ".join(players))
         )
     )
 
@@ -133,7 +131,7 @@ def add_call_bluff(results):
             "call_bluff",
             sticker_file_id=c.STICKERS['option_bluff'],
             input_message_content=
-            InputTextMessageContent("I'm calling your bluff!")
+            InputTextMessageContent("É BLEFE SUA PUTA!")
         )
     )
 
@@ -149,15 +147,15 @@ def add_play_card(game, card, results, can_play):
         results.append(
             Sticker(str(uuid4()), sticker_file_id=c.STICKERS_GREY[str(card)],
                     input_message_content=InputTextMessageContent(
-                        "Current player: " + display_name(
+                        "Jogando agora: " + display_name(
                             game.current_player.user) +
                         "\n" +
-                        "Last card: " + repr(game.last_card) + "\n" +
-                        "Players: " + " -> ".join(players)))
+                        "Última carta: " + repr(game.last_card) + "\n" +
+                        "Jogadores: " + " -> ".join(players)))
         )
 
 
 def add_player(itplayer, players):
-    players.append(itplayer.user.first_name + " (%d cards)"
+    players.append(itplayer.user.first_name + " (%d cartas)"
                    % len(itplayer.cards))
 

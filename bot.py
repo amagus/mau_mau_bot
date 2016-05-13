@@ -16,10 +16,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-
+import ast
+from collections import namedtuple
 import logging
 from datetime import datetime
 from random import randint
+from random import choice
 
 from telegram import ParseMode, Message, Chat, InlineKeyboardMarkup, \
     InlineKeyboardButton
@@ -30,10 +32,11 @@ from telegram.ext.dispatcher import run_async
 from telegram.utils.botan import Botan
 
 from game_manager import GameManager
-from credentials import TOKEN, BOTAN_TOKEN
+from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME
 from start_bot import start_bot
 from results import *
 from utils import *
+import card as c
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -47,6 +50,8 @@ dp = u.dispatcher
 botan = False
 if BOTAN_TOKEN:
     botan = Botan(BOTAN_TOKEN)
+
+def _lambda(d): return namedtuple('X', d.keys())(*d.values())
 
 help_text = ("Follow these steps:\n\n"
              "1. Add this bot to a group\n"
@@ -117,14 +122,21 @@ def new_game(bot, update):
         game = gm.new_game(update.message.chat)
         game.owner = update.message.from_user
         send_async(bot, chat_id,
-                   text="Created a new game! Join the game with /join "
-                        "and start the game with /start")
+                   text="Jogo criado! Entre no jogo usando /join "
+                        "e inicie o jogo com /start")
         if botan:
             botan.track(update.message, 'New games')
 
 
 def join_game(bot, update):
     """ Handler for the /join command """
+    message_text = update.message.text.split(' ', 1 )
+    user_obj = ''
+#     if(len(message_text) > 1):
+#         user_obj = _lambda(ast.literal_eval(message_text[1]))
+#         logger.debug("forçando a entrar: %d" % user_obj.id)
+#     else:
+    user_obj = update.message.from_user
     chat_id = update.message.chat_id
     if update.message.chat.type == 'private':
         help(bot, update)
@@ -132,26 +144,69 @@ def join_game(bot, update):
         try:
             game = gm.chatid_games[chat_id][-1]
             if not game.open:
-                send_async(bot, chat_id, text="The lobby is closed")
+                send_async(bot, chat_id, text="Tem um monte de gente online, mas ninguém mais pode entrar no jogo. Fique aí triste e rejeitado.",reply_to_message_id=update.message.message_id)
                 return
+            try:
+                delta = (datetime.now() - game.anti_pedalada[user_obj.id]).seconds;
+                if(delta < PEDALA_TIME):
+                    send_async(bot, chat_id, text="Tentando pedalar é?\nVocê só pode voltar a jogar em %d segundo(s)" % (PEDALA_TIME - delta),reply_to_message_id=update.message.message_id)
+                    return
+            except (KeyError, IndexError):
+                pass
         except (KeyError, IndexError):
             pass
 
-        joined = gm.join_game(chat_id, update.message.from_user)
+        joined = gm.join_game(chat_id, user_obj)
         if joined:
-            send_async(bot, chat_id,
-                       text="Joined the game",
-                       reply_to_message_id=update.message.message_id)
+            if (update.message.from_user.id == user_obj.id):
+                send_async(bot, chat_id,
+                            text="Entrou no jogo.",
+                            reply_to_message_id=update.message.message_id)
+            else:
+                send_async(bot, chat_id,
+                            text="Forçou @%s a entrar no jogo" % user_obj.username,
+                            reply_to_message_id=update.message.message_id)
         elif joined is None:
             send_async(bot, chat_id,
-                       text="No game is running at the moment. "
-                            "Create a new game with /new",
+                       text="Não dá para dar join se não tem jogo acontecendo, né querida? "
+                            "Crie um novo com /new",
                        reply_to_message_id=update.message.message_id)
         else:
             send_async(bot, chat_id,
-                       text="You already joined the game. Start the game "
-                            "with /start",
+                       text="Não tem como sentar na pica branca e preta aqui, querida. "
+                            "Você já está dentro desse jogo, comece ele com /start ou /"
+                            "startfouyer",
                        reply_to_message_id=update.message.message_id)
+
+
+def uno_handler(bot, update):
+    """ Handler for the /uno command """
+    try:
+        chat_id = update.message.chat_id
+        user = update.message.from_user
+        games = gm.chatid_games[chat_id]
+        players = gm.userid_players.get(user.id, list())
+        jogando = False
+        for player in players:
+            for game in games:
+                if player in game.players:
+                    jogando = True
+                    if player.uno:
+                        player.uno = False
+                        send_async(bot, chat_id, text="OLHA ELE!",
+                        reply_to_message_id=update.message.message_id)
+                        break
+                    else:
+                        player.cards.append(player.game.deck.draw())
+                        send_async(bot, chat_id, text="Burra! Nem tá com uma carta e tá gritando UNO... Toma uma carta e vê se aprende!",
+                        reply_to_message_id=update.message.message_id)
+                        break
+        if not jogando:
+            send_async(bot, chat_id, text="Você nem está jogando.",
+            reply_to_message_id=update.message.message_id)
+    except KeyError:
+        send_async(bot, chat_id, text="Não tem jogo acontecendo neste chat.",
+            reply_to_message_id=update.message.message_id)
 
 
 def leave_game(bot, update):
@@ -164,25 +219,39 @@ def leave_game(bot, update):
             game = player.game
             break
     else:
-        send_async(bot, chat_id, text="You are not playing in a game in "
-                                      "this group.",
+        send_async(bot, chat_id, text="Para de tentar sair de jogo que você não tá jogando.",
                    reply_to_message_id=update.message.message_id)
         return
 
     user = update.message.from_user
 
-    if len(game.players) < 3:
+    if game.started and len(game.players) < 3:
         gm.end_game(chat_id, user)
-        send_async(bot, chat_id, text="Game ended!")
+        send_async(bot, chat_id, text="Fim de jogo!")
     else:
-        if gm.leave_game(user, chat_id):
-            send_async(bot, chat_id,
-                       text="Okay. Next Player: " +
-                            display_name(game.current_player.user),
-                       reply_to_message_id=update.message.message_id)
+        player = gm.get_player_by_id(user, chat_id);
+        if game.playerWhichIsBluffing is player:
+            game.playerWhichIsBluffing = None
+        if(game.choosing_color):
+            game.choosing_color = False
+            result_id = choice(c.COLORS)
+            game.choose_color(result_id)
+            send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
+        if not player is None:
+            gm.leave_game(user, chat_id)
+            if(len(player.cards) < 15):
+                game.anti_pedalada[user.id] = datetime.now()
+            if(game.started):
+                send_async(bot, chat_id,
+                           text="Tchau, querida! Próximo jogador: " +
+                                display_name(game.current_player.user),
+                           reply_to_message_id=update.message.message_id)
+            else:
+                send_async(bot, chat_id,
+                           text="Tchau, querida!",
+                           reply_to_message_id=update.message.message_id)
         else:
-            send_async(bot, chat_id, text="You are not playing in a game in "
-                                          "this group.",
+            send_async(bot, chat_id, text="Para de tentar sair de jogo que você não tá jogando.",
                        reply_to_message_id=update.message.message_id)
 
 
@@ -197,21 +266,21 @@ def select_game(bot, update):
             break
     else:
         send_async(bot, update.callback_query.message.chat_id,
-                   text="Game not found :(")
+                   text="Jogo não encontrado :(")
         return
 
-    back = [[InlineKeyboardButton(text='Back to last group',
+    back = [[InlineKeyboardButton(text='Volte ao último grupo',
                                   switch_inline_query='')]]
 
     bot.answerCallbackQuery(update.callback_query.id,
-                            text="Please switch to the group you selected!",
+                            text="Vai jogar no grupo que você escolheu.",
                             show_alert=False,
                             timeout=2.5)
     bot.editMessageText(chat_id=update.callback_query.message.chat_id,
                         message_id=update.callback_query.message.message_id,
-                        text="Selected group: %s\n"
-                             "<b>Make sure that you switch to the correct "
-                             "group!</b>"
+                        text="Grupo escolhido: %s\n"
+                             "<b>Tenha certeza que foi para o grupo certo"
+                             "</b>"
                              % gm.userid_current[user_id].game.chat.title,
                         reply_markup=InlineKeyboardMarkup(back),
                         parse_mode=ParseMode.HTML,
@@ -229,8 +298,12 @@ def status_update(bot, update):
             return
 
         if gm.leave_game(user, chat_id):
-            send_async(bot, chat_id, text="Removing %s from the game" 
+            send_async(bot, chat_id, text="Removendo %s do jogo." 
                                           % display_name(user))
+
+def start_game_fouyer(bot, update, args):
+    start_game(bot, update, args)
+    
 
 
 def start_game(bot, update, args):
@@ -242,16 +315,16 @@ def start_game(bot, update, args):
         try:
             game = gm.chatid_games[chat_id][-1]
         except (KeyError, IndexError):
-            send_async(bot, chat_id, text="There is no game running in this "
-                                          "chat. Create a new one with /new")
+            send_async(bot, chat_id, text="Não tem jogo rodando neste chat.\n"
+                                          "Crie um novo com /new")
             return
 
         if game.current_player is None or \
                 game.current_player is game.current_player.next:
-            send_async(bot, chat_id, text="At least two players must /join "
-                                          "the game before you can start it")
+            send_async(bot, chat_id, text="Pelo menos dois jogadores precisam dar /join "
+                                          "para começar o jogo")
         elif game.started:
-            send_async(bot, chat_id, text="The game has already started")
+            send_async(bot, chat_id, text="Lerda você, hein?\nJá tem um jogo rodando neste chat.")
         else:
             game.play_card(game.last_card)
             game.started = True
@@ -259,8 +332,8 @@ def start_game(bot, update, args):
                             sticker=c.STICKERS[str(game.last_card)],
                             timeout=2.5)
             send_async(bot, chat_id, 
-                       text="First player: %s\n"
-                            "Use /close to stop people from joining the game."
+                       text="%s começa jogando.\n"
+                            "Use /close para impedir que mais pessoas entrem no jogo."
                             % display_name(game.current_player.user))
     elif len(args) and args[0] == 'select':
         players = gm.userid_players[update.message.from_user.id]
@@ -271,7 +344,7 @@ def start_game(bot, update, args):
                                                 callback_data=
                                                 str(player.game.chat.id))])
         send_async(bot, update.message.chat_id,
-                   text='Please select the group you want to play in. ',
+                   text='Selecione o grupo que você quer jogar:',
                    reply_markup=InlineKeyboardMarkup(groups))
     else:
         help(bot, update)
@@ -284,20 +357,19 @@ def close_game(bot, update):
     games = gm.chatid_games.get(chat_id)
 
     if not games:
-        send_async(bot, chat_id, text="There is no running game")
+        send_async(bot, chat_id, text="Não tem jogo rodando, não insista.")
         return
 
     game = games[-1]
 
     if game.owner.id == user.id:
         game.open = False
-        send_async(bot, chat_id, text="Closed the lobby. "
-                                      "No more players can join this game.")
+        send_async(bot, chat_id, text="Ninguém mais pode entrar no jogo.")
         return
     else:
         send_async(bot, chat_id,
-                   text="Only the game creator (%s) can do that"
-                        % game.owner.first_name,
+                   text="Só o todo poderoso %s pode fazer isto. Foi ele quem criou o jogo."
+                        % display_name(game.owner),
                    reply_to_message_id=update.message.message_id)
         return
 
@@ -309,20 +381,20 @@ def open_game(bot, update):
     games = gm.chatid_games.get(chat_id)
 
     if not games:
-        send_async(bot, chat_id, text="There is no running game")
+        send_async(bot, chat_id, text="Vai abrir o que? Só se for seu cu, não tem jogo rodando.")
         return
 
     game = games[-1]
 
     if game.owner.id == user.id:
         game.open = True
-        send_async(bot, chat_id, text="Opened the lobby. "
-                                      "New players may /join the game.")
+        send_async(bot, chat_id, text="\o/ Tá aberto o jogo."
+                                      "Novos jogadores podem usar o /join.")
         return
     else:
         send_async(bot, chat_id,
-                   text="Only the game creator (%s) can do that"
-                        % game.owner.first_name,
+                   text="Só o todo poderoso %s pode fazer isto. Foi ele quem criou o jogo."
+                        % display_name(game.owner),
                    reply_to_message_id=update.message.message_id)
         return
 
@@ -335,11 +407,11 @@ def skip_player(bot, update):
     players = gm.userid_players.get(user.id)
 
     if not games:
-        send_async(bot, chat_id, text="There is no running game")
+        send_async(bot, chat_id, text="Não tem jogo rodando, não insista.")
         return
 
     if not players:
-        send_async(bot, chat_id, text="You are not playing")
+        send_async(bot, chat_id, text="Deixa quem tá jogando palpitar, tá bom, querida?")
         return
 
     for game in games:
@@ -351,7 +423,7 @@ def skip_player(bot, update):
 
                 if delta < game.current_player.waiting_time:
                     send_async(bot, chat_id,
-                               text="Please wait %d seconds"
+                               text="Ainda não, querida, só daqui %s segundos."
                                     % (game.current_player.waiting_time -
                                        delta),
                                reply_to_message_id=
@@ -361,11 +433,17 @@ def skip_player(bot, update):
                 elif game.current_player.waiting_time > 0:
                     game.current_player.anti_cheat += 1
                     game.current_player.waiting_time -= 30
-                    game.current_player.cards.append(game.deck.draw())
+                    if(game.choosing_color):
+                        game.choosing_color = False
+                        result_id = choice(c.COLORS)
+                        game.choose_color(result_id)
+                        send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
+                    else:
+                        game.current_player.cards.append(game.deck.draw())
                     send_async(bot, chat_id,
-                               text="Waiting time to skip this player has "
-                                    "been reduced to %d seconds.\n"
-                                    "Next player: %s"
+                               text="Na próxima vez, a espera será "
+                                    "de %d seconds.\n"
+                                    "Próximo jogador: %s"
                                     % (game.current_player.waiting_time,
                                        display_name(
                                            game.current_player.next.user)))
@@ -374,9 +452,9 @@ def skip_player(bot, update):
 
                 elif len(game.players) > 2:
                     send_async(bot, chat_id,
-                               text="%s was skipped four times in a row "
-                                    "and has been removed from the game.\n"
-                                    "Next player: %s"
+                               text="%s ficou sem sinal, bateria ou morreu."
+                                    "Ele foi removido do jogo.\n"
+                                    "Próximo: %s"
                                     % (display_name(game.current_player.user),
                                        display_name(
                                            game.current_player.next.user)))
@@ -385,9 +463,8 @@ def skip_player(bot, update):
                     return
                 else:
                     send_async(bot, chat_id,
-                               text="%s was skipped four times in a row "
-                                    "and has been removed from the game.\n"
-                                    "The game ended."
+                               text="%s ficou sem sinal, bateria ou morreu."
+                                    "Ele foi removido do jogo e por isso o jogo acabou :(\n"
                                     % display_name(game.current_player.user))
 
                     gm.end_game(chat_id, game.current_player.user)
@@ -404,6 +481,22 @@ def source(bot, update):
     """ Handler for the /help command """
     send_async(bot, update.message.chat_id, text=source_text,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+def stats(bot,update):
+    chat_id = update.message.chat_id
+    user = update.message.from_user
+    games = gm.chatid_games.get(chat_id)
+    for game in games:
+        players = player_list(game)
+        send_async(bot, chat_id, text="Jogando agora: " + 
+                display_name(game.current_player.user) +
+                "\n" +
+                "Última carta: " + repr(game.last_card) + "\n" +
+                "Jogadores: " + " -> ".join(players),
+                reply_to_message_id=update.message.message_id)
+    if len(games) < 1:
+        send_async(bot, chat_id, text="Stats de que jogo? Não tem nada rodando aqui não.",
+                    reply_to_message_id=update.message.message_id)
 
 
 def news(bot, update):
@@ -439,7 +532,7 @@ def reply_to_query(bot, update):
                 else:
                     add_pass(results)
 
-                if game.last_card.special == c.DRAW_FOUR and game.draw_counter:
+                if (game.last_card.special == c.DRAW_FOUR and game.draw_counter and not game.playerWhichIsBluffing is None) or (game.last_card.value == c.DRAW_TWO and game.draw_counter and not game.playerWhichIsBluffing is None) and not game.playerWhichIsBluffing is player:
                     add_call_bluff(results)
 
                 playable = player.playable_cards()
@@ -496,9 +589,11 @@ def process_result(bot, update):
         return
     elif result_id == 'call_bluff':
         reset_waiting_time(bot, chat_id, player)
+        check_uno(bot, chat_id, player.prev)
         do_call_bluff(bot, chat_id, game, player)
     elif result_id == 'draw':
         reset_waiting_time(bot, chat_id, player)
+        check_uno(bot, chat_id, player.prev)
         do_draw(game, player)
     elif result_id == 'pass':
         game.turn()
@@ -506,46 +601,61 @@ def process_result(bot, update):
         game.choose_color(result_id)
     else:
         reset_waiting_time(bot, chat_id, player)
+        check_uno(bot, chat_id, player.prev)
         do_play_card(bot, chat_id, game, player, result_id, user)
 
     if game in gm.chatid_games.get(chat_id, list()):
-        send_async(bot, chat_id, text="Next player: " +
+        send_async(bot, chat_id, text="Próximo: " +
                                       display_name(game.current_player.user))
 
 
 def reset_waiting_time(bot, chat_id, player):
-    if player.waiting_time < 90:
-        player.waiting_time = 90
-        send_async(bot, chat_id, text="Waiting time for %s has been reset to "
-                                      "90 seconds" % display_name(player.user))
+    if player.waiting_time < WAIT_TIME:
+        player.waiting_time = WAIT_TIME
+        send_async(bot, chat_id, text="Tempo de espera para %s voltou a ser de "
+                                      "%d segundos." % (display_name(player.user),WAIT_TIME))
+
+def check_uno(bot, chat_id, player):
+    if player.uno:
+        player.uno = False
+        player.cards.append(player.game.deck.draw())
+        send_async(bot, chat_id, text="%s se fudeu, esqueceu do /uno. Comeu uma carta pra ver se aprende." % display_name(player.user))
 
 
 def do_play_card(bot, chat_id, game, player, result_id, user):
     card = c.from_str(result_id)
     game.play_card(card)
     player.cards.remove(card)
-    if game.choosing_color:
-        send_async(bot, chat_id, text="Please choose a color")
     if len(player.cards) == 1:
-        send_async(bot, chat_id, text="UNO!")
+        player.uno = True
+        #send_async(bot, chat_id, text="UNO!")
     if len(player.cards) == 0:
-        send_async(bot, chat_id, text="%s won!" % user.first_name)
+        if(game.playerWhichIsBluffing != None and game.playerWhichIsBluffing.user.id is player.user.id):
+            game.playerWhichIsBluffing = None
+        send_async(bot, chat_id, text="%s ganhou, esse prodígio!" % display_name(user))
+        if(game.choosing_color):
+            game.choosing_color = False
+            result_id = choice(c.COLORS)
+            game.choose_color(result_id)
+            send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
         if len(game.players) < 3:
-            send_async(bot, chat_id, text="Game ended!")
+            send_async(bot, chat_id, text="Fim de jogo!")
             gm.end_game(chat_id, user)
         else:
             gm.leave_game(user, chat_id)
-
+            
+    if game.choosing_color:
+        send_async(bot, chat_id, text="Escolha uma cor!")
     if botan:
         botan.track(Message(randint(1, 1000000000), user, datetime.now(),
                             Chat(chat_id, 'group')),
-                    'Played cards')
-
+                    'Cartas jogadas')
 
 def do_draw(game, player):
     draw_counter_before = game.draw_counter
     for n in range(game.draw_counter or 1):
         player.cards.append(game.deck.draw())
+    game.playerWhichIsBluffing = None
     game.draw_counter = 0
     player.drew = True
     if (game.last_card.value == c.DRAW_TWO or
@@ -555,19 +665,20 @@ def do_draw(game, player):
 
 
 def do_call_bluff(bot, chat_id, game, player):
-    if player.prev.bluffing:
-        send_async(bot, chat_id, text="Bluff called! Giving %d cards to %s"
-                                      % (game.draw_counter,
-                                         player.prev.user.first_name))
+    bluffer = game.playerWhichIsBluffing
+    if game.playerIsBluffing:
+        send_async(bot, chat_id, text="PEGO NO BLEFE! Dando %d cartas de brinde para o %s."
+                                      % (game.draw_counter, display_name(bluffer.user)))
         for i in range(game.draw_counter):
-            player.prev.cards.append(game.deck.draw())
+            bluffer.cards.append(game.deck.draw())
     else:
-        send_async(bot, chat_id, text="%s didn't bluff! Giving %d cards to %s"
-                                      % (player.prev.user.first_name,
-                                         game.draw_counter + 2,
-                                         player.user.first_name))
+        send_async(bot, chat_id, text="%s não blefou! %s se fudeu, ganhou %d cartas de brinde."
+                                        % (display_name(bluffer.user),
+                                        display_name(player.user),
+                                         game.draw_counter + 2))
         for i in range(game.draw_counter + 2):
             player.cards.append(game.deck.draw())
+    game.playerWhichIsBluffing = None
     game.draw_counter = 0
     game.turn()
 
@@ -577,6 +688,7 @@ dp.addHandler(InlineQueryHandler(reply_to_query))
 dp.addHandler(ChosenInlineResultHandler(process_result))
 dp.addHandler(CallbackQueryHandler(select_game))
 dp.addHandler(CommandHandler('start', start_game, pass_args=True))
+dp.addHandler(CommandHandler('startfouyer', start_game_fouyer, pass_args=True))
 dp.addHandler(CommandHandler('new', new_game))
 dp.addHandler(CommandHandler('join', join_game))
 dp.addHandler(CommandHandler('leave', leave_game))
@@ -586,6 +698,8 @@ dp.addHandler(CommandHandler('skip', skip_player))
 dp.addHandler(CommandHandler('help', help))
 dp.addHandler(CommandHandler('source', source))
 dp.addHandler(CommandHandler('news', news))
+dp.addHandler(CommandHandler('uno', uno_handler))
+dp.addHandler(CommandHandler('stats', stats))
 dp.addHandler(MessageHandler([Filters.status_update], status_update))
 dp.addErrorHandler(error)
 

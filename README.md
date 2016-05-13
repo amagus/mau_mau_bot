@@ -1,10 +1,5 @@
 # UNO Bot
-Telegram Bot that allows you to play the popular card game UNO via inline queries. The bot currently runs as [@mau_mau_bot](http://telegram.me/mau_mau_bot)
+Bot de telegram que deixa você jogar UNO pelo modo inline COM AS REGRAS QUE SEMPRE JOGAMOS. NADA DE REGRAS IDIOTAS CRIADAS POR MONSTROS CAPITALISTAS.
+Ele roda no [@PeixeUno_bot](http://telegram.me/PeixeUno_bot) mas é privativo. Sinto muito sonhador socialista. Use o [@mau_mau_bot](http://telegram.me/mau_mau_bot) se quiser.
 
-To run the bot yourself, you will need: 
-- Python (tested with 3.4 and 3.5)
-- The [python-telegram-bot](https://github.com/python-telegram-bot/python-telegram-bot) module version 4.0.3
-
-Get a bot token from [@BotFather](http://telegram.me/BotFather), place it in `credentials.py` and run the bot with `python3 bot.py`
-
-Code documentation is minimal but there
+Se quiser instruções de como instalar visite o site do criador ([https://github.com/jh0ker/mau_mau_bot](https://github.com/jh0ker/mau_mau_bot))

@@ -33,6 +33,11 @@ class Game(object):
     started = False
     owner = None
     open = True
+    fouyer = False
+    playerIsBluffing = False
+    playerWhichIsBluffing = None  
+    anti_pedalada = {};
+
 
     def __init__(self, chat):
         self.chat = chat
@@ -70,6 +75,10 @@ class Game(object):
         self.current_player = self.current_player.next
         self.current_player.drew = False
         self.current_player.turn_started = datetime.now()
+        
+    def set_fouyer(self, fouyer_bool):
+        self.fouyer = fouyer_bool
+    
 
     def play_card(self, card):
         """ Play a card and trigger its effects """
@@ -80,6 +89,9 @@ class Game(object):
         if card.value == c.SKIP:
             self.turn()
         elif card.special == c.DRAW_FOUR:
+            if self.playerWhichIsBluffing is None:
+                self.playerWhichIsBluffing = self.current_player
+                self.playerIsBluffing = self.current_player.bluffing
             self.draw_counter += 4
             self.logger.debug("Draw counter increased by 4")
         elif card.value == c.DRAW_TWO:
