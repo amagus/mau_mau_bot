@@ -32,7 +32,7 @@ from telegram.ext.dispatcher import run_async
 from telegram.utils.botan import Botan
 
 from game_manager import GameManager
-from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME
+from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME,ALLOWED
 from start_bot import start_bot
 from results import *
 from utils import *
@@ -116,6 +116,12 @@ def error(bot, update, error):
 def new_game(bot, update):
     """ Handler for the /new command """
     chat_id = update.message.chat_id
+    
+    if(not int(chat_id) in ALLOWED):
+        send_async(bot, chat_id,
+                   text="Esse chat/grupo não está autorizado a utilizar este bot. Peça para que o chat %d seja liberado." % chat_id)
+        return
+    
     if update.message.chat.type == 'private':
         help(bot, update)
     else:
