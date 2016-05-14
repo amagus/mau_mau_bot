@@ -771,7 +771,6 @@ def do_play_card(bot, chat_id, game, player, result_id, user):
     card = c.from_str(result_id)
     game.play_card(card)
     player.cards.remove(card)
-    print(ranking['chat_' + str(chat_id)]['players']["user_" + str(user.id)]['wins'])
     if len(player.cards) == 1:
         player.uno = True
         player.unoDrawn = False
