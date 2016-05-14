@@ -38,9 +38,9 @@ from results import *
 from utils import *
 import card as c
 
-# logging.basicConfig(
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-#     level=logging.DEBUG)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 gm = GameManager()
@@ -134,7 +134,7 @@ def new_game(bot, update):
             send_async(bot, chat_id,
                        text="Ô IMBECIL! Já tem jogo acontecendo aqui.")
             return
-        except KeyError:
+        except (KeyError, IndexError):
             pass
 
         if update.message.chat.type == 'private':
