@@ -40,9 +40,9 @@ from results import *
 from utils import *
 import card as c
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG)
+# logging.basicConfig(
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 gm = GameManager()
@@ -342,7 +342,7 @@ def leave_game(bot, update):
             gm.leave_game(user, chat_id)
             if(game.started):
                 send_async(bot, chat_id,
-                           text="Tchau, querida! Próximo jogador: " +
+                           text="Tchau, querida!\nPróximo jogador: " +
                                 display_name(game.current_player.user,game),
                            reply_to_message_id=update.message.message_id)
             else:
@@ -630,16 +630,21 @@ def stats(bot,update):
     chat_id = update.message.chat_id
     user = update.message.from_user
     games = gm.chatid_games.get(chat_id)
-    for game in games:
-        players = player_list(game)
-        send_async(bot, chat_id, text="Jogando agora: " + 
-                display_name(game.current_player.user) +
-                "\n" +
-                "Última carta: " + repr(game.last_card) + "\n" +
-                "Jogadores: " + " -> ".join(players),
-                reply_to_message_id=update.message.message_id)
-    if len(games) < 1:
+    if not games or len(games) < 1:
         send_async(bot, chat_id, text="Stats de que jogo? Não tem nada rodando aqui não.",
+                    reply_to_message_id=update.message.message_id)
+        return
+    for game in games:
+        if game.started:
+            players = player_list(game)
+            send_async(bot, chat_id, text="Jogando agora: " + 
+                    display_name(game.current_player.user,game) +
+                    "\n" +
+                    "Última carta: " + repr(game.last_card) + "\n" +
+                    "Jogadores: " + " -> ".join(players),
+                    reply_to_message_id=update.message.message_id)
+        else:
+            send_async(bot, chat_id, text="Calma lá, o jogo ainda não começou.\nTente novamente mais tarde.",
                     reply_to_message_id=update.message.message_id)
 
 

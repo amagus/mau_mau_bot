@@ -122,11 +122,12 @@ class Player(object):
                 self.logger.debug("Matching!")
                 playable.append(card)
         
-        self.bluffing = False;
-        
-        for card in playable:
-        	if(card.special != c.DRAW_FOUR):
-        		self.bluffing = True
+               
+        if not self.drew: #Se comeu, o valor do blefe é mantido.
+        	self.bluffing = False;
+	        for card in playable:
+	        	if(card.special != c.DRAW_FOUR):
+	        		self.bluffing = True
                         
         #self.bluffing = len(playable) > 0
         # You may not play a chooser or +4 as your last card
