@@ -34,6 +34,7 @@ class Game(object):
     owner = None
     open = True
     fouyer = False
+    ranking = {}
     playerIsBluffing = False
     playerWhichIsBluffing = None  
     anti_pedalada = {};

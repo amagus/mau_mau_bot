@@ -17,6 +17,8 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 import ast
+import os.path
+import json
 from collections import namedtuple
 import logging
 from datetime import datetime
@@ -32,7 +34,7 @@ from telegram.ext.dispatcher import run_async
 from telegram.utils.botan import Botan
 
 from game_manager import GameManager
-from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME,ALLOWED,API_TIMEOUT
+from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME,ALLOWED,API_TIMEOUT,RANKING_FILE
 from start_bot import start_bot
 from results import *
 from utils import *
@@ -50,8 +52,7 @@ dp = u.dispatcher
 from threading import Lock
 
 mutex = Lock()
-# ranking = {}
-# load_ranking()
+ranking = {}
 
 botan = False
 if BOTAN_TOKEN:
@@ -121,6 +122,8 @@ def error(bot, update, error):
 
 def new_game(bot, update):
     """ Handler for the /new command """
+    global ranking
+    global mutex
     mutex.acquire()
     try:
         chat_id = update.message.chat_id
@@ -142,6 +145,7 @@ def new_game(bot, update):
         else:
             game = gm.new_game(update.message.chat)
             game.owner = update.message.from_user
+            game.ranking = init_ranking(chat_id)
             send_async(bot, chat_id,
                        text="Jogo criado! Entre no jogo usando /join "
                             "e inicie o jogo com /start")
@@ -150,17 +154,42 @@ def new_game(bot, update):
     finally:
         mutex.release()
 
-# def load_ranking():
-#     with open('ranking.json') as json_data:
-#         ranking = json.loads(json_data)
-#         json_data.close()
-# 
-# def init_ranking(chat_id)
-#     try:
-#         return ranking[chat_id]
-#     except KeyError:
-#         ranking[chat_id] = {}
-#         return ranking[chat_id]
+def save_ranking():
+    global ranking
+    with open(RANKING_FILE, 'w') as f:
+        json.dump(ranking, f, ensure_ascii=False)
+
+def load_ranking():
+    global ranking
+    try:    
+        if os.path.isfile(RANKING_FILE):
+            with open(RANKING_FILE) as json_data:
+                ranking = json.load(json_data)
+                json_data.close()
+    except:
+        logger.debug("Unable to load ranking file, returning empty")
+        ranking = {}
+    
+
+load_ranking()
+
+def sort_ranking(chat_id):
+    pass
+
+
+
+
+def init_ranking(chat_id):
+    global ranking
+    try:
+        return ranking['chat_' + str(chat_id)]
+    except (IndexError, KeyError):
+        ranking['chat_' + str(chat_id)] = {}
+        ranking['chat_' + str(chat_id)]['most'] = 0;
+        ranking['chat_' + str(chat_id)]['players'] = {};
+        save_ranking()
+        return ranking['chat_' + str(chat_id)]
+       
 
 
 
@@ -184,6 +213,7 @@ def allow_handler(bot, update):
 
 def join_game(bot, update):
     """ Handler for the /join command """
+    global ranking
     message_text = update.message.text.split(' ', 1 )
     user_obj = ''
 #     if(len(message_text) > 1):
@@ -212,11 +242,16 @@ def join_game(bot, update):
 
         joined = gm.join_game(chat_id, user_obj)
         if joined:
-#             try:
-#                 r = ranking[user_obj.id]
-#             except KeyError:
-#                 ranking[user_obj.id] = {'user':user_obj,'wins':0}
-#                 save_ranking()
+            try:
+                user_rank_data = ranking['chat_' + str(chat_id)]['players']["user_" + str(user_obj.id)]
+            except (IndexError, KeyError):
+                user_rank_data = {}
+                user_rank_data['wins'] = 0
+                ranking['chat_' + str(chat_id)]['players']["user_" + str(user_obj.id)] = user_rank_data
+            user_rank_data['user'] = {  'first_name': user_obj.first_name,
+                                        'username': user_obj.username,
+                                        'id': user_obj.id}
+            save_ranking()
             if (update.message.from_user.id == user_obj.id):
                 send_async(bot, chat_id,
                             text="Entrou no jogo.",
@@ -302,13 +337,13 @@ def leave_game(bot, update):
             game.choose_color(result_id)
             send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
         if not player is None:
-            if(len(player.cards) < 15):
+            if(len(player.cards) < 15 and game.started):
                 game.anti_pedalada[user.id] = datetime.now()
             gm.leave_game(user, chat_id)
             if(game.started):
                 send_async(bot, chat_id,
                            text="Tchau, querida! Próximo jogador: " +
-                                display_name(game.current_player.user),
+                                display_name(game.current_player.user,game),
                            reply_to_message_id=update.message.message_id)
             else:
                 send_async(bot, chat_id,
@@ -353,17 +388,23 @@ def select_game(bot, update):
 
 def status_update(bot, update):
     """ Remove player from game if user leaves the group """
-
+   
+    
     if update.message.left_chat_member:
         try:
             chat_id = update.message.chat_id
             user = update.message.left_chat_member
-        except KeyError:
+            players = gm.userid_players.get(user.id, list())
+            for player in players:
+                if player.game.chat.id == chat_id:
+                    game = player.game
+                    break
+        except (IndexError, KeyError):
             return
 
         if gm.leave_game(user, chat_id):
             send_async(bot, chat_id, text="Removendo %s do jogo." 
-                                          % display_name(user))
+                                          % display_name(user,game))
 
 def start_game_fouyer(bot, update, args):
     game = start_game(bot, update, args)
@@ -398,7 +439,7 @@ def start_game(bot, update, args):
             send_async(bot, chat_id, 
                        text="%s começa jogando.\n"
                             "Use /close para impedir que mais pessoas entrem no jogo."
-                            % display_name(game.current_player.user))
+                            % display_name(game.current_player.user,game))
             return game
     elif len(args) and args[0] == 'select':
         players = gm.userid_players[update.message.from_user.id]
@@ -434,7 +475,7 @@ def close_game(bot, update):
     else:
         send_async(bot, chat_id,
                    text="Só o todo poderoso %s pode fazer isto. Foi ele quem criou o jogo."
-                        % display_name(game.owner),
+                        % display_name(game.owner,game),
                    reply_to_message_id=update.message.message_id)
         return
 
@@ -459,7 +500,7 @@ def open_game(bot, update):
     else:
         send_async(bot, chat_id,
                    text="Só o todo poderoso %s pode fazer isto. Foi ele quem criou o jogo."
-                        % display_name(game.owner),
+                        % display_name(game.owner,game),
                    reply_to_message_id=update.message.message_id)
         return
 
@@ -511,7 +552,7 @@ def skip_player(bot, update):
                                     "Próximo jogador: %s"
                                     % (game.current_player.waiting_time,
                                        display_name(
-                                           game.current_player.next.user)))
+                                           game.current_player.next.user,game)))
                     game.turn()
                     return
 
@@ -522,7 +563,7 @@ def skip_player(bot, update):
                                     "Próximo: %s"
                                     % (display_name(game.current_player.user),
                                        display_name(
-                                           game.current_player.next.user)))
+                                           game.current_player.next.user,game)))
 
                     gm.leave_game(game.current_player.user, chat_id)
                     return
@@ -530,7 +571,7 @@ def skip_player(bot, update):
                     send_async(bot, chat_id,
                                text="%s ficou sem sinal, bateria ou morreu."
                                     "Ele foi removido do jogo e por isso o jogo acabou :(\n"
-                                    % display_name(game.current_player.user))
+                                    % display_name(game.current_player.user,game))
 
                     gm.end_game(chat_id, game.current_player.user)
                     return
@@ -547,17 +588,42 @@ def source(bot, update):
     send_async(bot, update.message.chat_id, text=source_text,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
-# def ranking(bot,update):
-#     chat_id = update.message.chat_id
-#     user = update.message.from_user
-#     games = gm.chatid_games.get(chat_id)
-#     for game in games:
-#         rank = ''
-#         for p in ranking[chat_id]:
-#             rank.append("%s - %d vitória(s)" % (display_name(p['user']),int(p['wins'])))
-#         send_async(bot, chat_id, text="Ranking:\n" + 
-#                 rank,
-#                 reply_to_message_id=update.message.message_id)
+def order_chat_rank(chat_id):
+    global ranking
+    global mutex
+    mutex.acquire()
+    try:
+        load_ranking()
+        chat_rank = ranking['chat_' + str(chat_id)]['players']
+        sorted_list = sorted(chat_rank, key=lambda x: chat_rank[x]['wins'], reverse=True)
+        try:
+            ranking['chat_' + str(chat_id)]['most'] = chat_rank[sorted_list[0]]['wins']
+        except (KeyError,IndexError):
+            ranking['chat_' + str(chat_id)]['most'] = 0
+        save_ranking()
+        return sorted_list
+    finally:
+        mutex.release()
+
+def ranking_handler(bot,update):
+    global ranking
+    chat_id = update.message.chat_id
+    
+    try:
+        chat_rank = ranking['chat_' + str(chat_id)]['players']
+    except (KeyError,IndexError):
+        init_ranking(chat_id)
+        chat_rank = ranking['chat_' + str(chat_id)]['players']
+    
+    rank = ''
+
+    sorted_list = order_chat_rank(chat_id)
+    for p in sorted_list:
+        user = chat_rank[p]
+        rank += ("%s - %d vitória(s)\n" % (display_name_with_rank(user['user'],ranking['chat_' + str(chat_id)]),int(user['wins'])))
+    send_async(bot, chat_id, text="Ranking:\n" + 
+                rank,
+                reply_to_message_id=update.message.message_id)
 
 
 def stats(bot,update):
@@ -663,7 +729,7 @@ def process_result(bot, update):
         return
     elif int(anti_cheat) != last_anti_cheat:
         send_async(bot, chat_id, 
-                   text="Cheat attempt by %s" % display_name(player.user))
+                   text="Cheat attempt by %s" % display_name(player.user,player.game))
         return
     elif result_id == 'call_bluff':
         reset_waiting_time(bot, chat_id, player)
@@ -684,26 +750,28 @@ def process_result(bot, update):
 
     if game in gm.chatid_games.get(chat_id, list()):
         send_async(bot, chat_id, text="Próximo: " +
-                                      display_name(game.current_player.user))
+                                      display_name(game.current_player.user,game))
 
 
 def reset_waiting_time(bot, chat_id, player):
     if player.waiting_time < WAIT_TIME:
         player.waiting_time = WAIT_TIME
         send_async(bot, chat_id, text="Tempo de espera para %s voltou a ser de "
-                                      "%d segundos." % (display_name(player.user),WAIT_TIME))
+                                      "%d segundos." % (display_name(player.user,player.game),WAIT_TIME))
 
 def check_uno(bot, chat_id, player):
     if player.uno:
         player.uno = False
         player.cards.append(player.game.deck.draw())
-        send_async(bot, chat_id, text="%s se fudeu, esqueceu do /uno. Comeu uma carta pra ver se aprende." % display_name(player.user))
+        send_async(bot, chat_id, text="%s se fudeu, esqueceu do /uno. Comeu uma carta pra ver se aprende." % display_name(player.user,player.game))
 
 
 def do_play_card(bot, chat_id, game, player, result_id, user):
+    global ranking
     card = c.from_str(result_id)
     game.play_card(card)
     player.cards.remove(card)
+    print(ranking['chat_' + str(chat_id)]['players']["user_" + str(user.id)]['wins'])
     if len(player.cards) == 1:
         player.uno = True
         player.unoDrawn = False
@@ -711,14 +779,11 @@ def do_play_card(bot, chat_id, game, player, result_id, user):
     elif len(player.cards) == 0:
         if(game.playerWhichIsBluffing != None and game.playerWhichIsBluffing.user.id is player.user.id):
             game.playerWhichIsBluffing = None
-        wins = 1
-#         try:
-#             wins = ranking[user.id]['wins'] + 1
-#             ranking[user.id]['wins'] = wins
-#             save_ranking()
-#         except KeyError:
-#             wins = 1
-        send_async(bot, chat_id, text="%s ganhou, esse prodígio!\nTotal de vitórias: %d" % (display_name(user),wins))
+        wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(user.id)]['wins'] + 1
+        ranking['chat_' + str(chat_id)]['players']["user_" + str(user.id)]['wins'] = wins
+        save_ranking()
+        order_chat_rank(chat_id)
+        send_async(bot, chat_id, text="%s ganhou, esse prodígio!\nTotal de vitórias: %d" % (display_name(user,game),wins))
         if(game.choosing_color):
             game.choosing_color = False
             result_id = choice(c.COLORS)
@@ -755,13 +820,13 @@ def do_call_bluff(bot, chat_id, game, player):
     check_uno(bot, chat_id, player.prev)
     if game.playerIsBluffing:
         send_async(bot, chat_id, text="PEGO NO BLEFE! Dando %d cartas de brinde para o %s."
-                                      % (game.draw_counter, display_name(bluffer.user)))
+                                      % (game.draw_counter, display_name(bluffer.user,game)))
         for i in range(game.draw_counter):
             bluffer.cards.append(game.deck.draw())
     else:
         send_async(bot, chat_id, text="%s não blefou! %s se fudeu, ganhou %d cartas de brinde."
-                                        % (display_name(bluffer.user),
-                                        display_name(player.user),
+                                        % (display_name(bluffer.user,game),
+                                        display_name(player.user,game),
                                          game.draw_counter + 2))
         for i in range(game.draw_counter + 2):
             player.cards.append(game.deck.draw())
@@ -789,7 +854,7 @@ dp.addHandler(CommandHandler('uno', uno_handler))
 dp.addHandler(CommandHandler('allow', allow_handler))
 dp.addHandler(CommandHandler('stats', stats))
 #dp.addHandler(CommandHandler('pedala', pedala))
-# dp.addHandler(CommandHandler('ranking', ranking))
+dp.addHandler(CommandHandler('ranking', ranking_handler))
 dp.addHandler(MessageHandler([Filters.status_update], status_update))
 dp.addErrorHandler(error)
 

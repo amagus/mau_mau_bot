@@ -29,12 +29,35 @@ def list_subtract(list1, list2):
 
     return list(sorted(list1))
 
+def display_name(user,game):
+    if game:
+        return display_name_with_rank(user,game.ranking)
+    else:
+        return display_name_with_rank(user)
 
-def display_name(user):
+
+def display_name_with_rank(user,rank):
     """ Get the current players name including their username, if possible """
-    user_name = user.first_name
-    if user.username:
-        user_name += ' (@' + user.username + ')'
+    user_name = ''
+    if rank:
+        most_wins = 0
+        try:
+            most_wins = int(rank['most'])
+        except (IndexError, KeyError):
+            most_wins = 0
+            
+        user_wins = 0
+        try:
+            user_wins = int(rank['players']["user_" + str(user['id'])]['wins'])
+        except (IndexError, KeyError):
+            user_wins = 0
+        
+        if user_wins >= most_wins:
+            user_name += Emoji.TROPHY
+    
+    user_name += user['first_name']
+    if user['username']:
+        user_name += ' (@' + user['username'] + ')'
     return user_name
 
 

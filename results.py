@@ -52,7 +52,7 @@ def add_other_cards(playable, player, results, game):
             description=', '.join([repr(card) for card in
                                    list_subtract(player.cards, playable)]),
             input_message_content=InputTextMessageContent(
-                "Jogando agora: " + display_name(game.current_player.user) +
+                "Jogando agora: " + display_name(game.current_player.user,game) +
                 "\n" +
                 "Última carta: " + repr(game.last_card) + "\n" +
                 "Jogadores: " + " -> ".join(players))
@@ -108,7 +108,7 @@ def add_gameinfo(game, results):
             "gameinfo",
             sticker_file_id=c.STICKERS['option_info'],
             input_message_content=InputTextMessageContent(
-                "Jogando agora: " + display_name(game.current_player.user) +
+                "Jogando agora: " + display_name(game.current_player.user,game) +
                 "\n" +
                 "Última carta: " + repr(game.last_card) + "\n" +
                 "Jogadores: " + " -> ".join(players))
@@ -120,7 +120,7 @@ def add_pass(results):
     results.append(
         Sticker(
             "pass", sticker_file_id=c.STICKERS['option_pass'],
-            input_message_content=InputTextMessageContent('Pass')
+            input_message_content=InputTextMessageContent('Pass\n(iva)')
         )
     )
 
@@ -148,7 +148,7 @@ def add_play_card(game, card, results, can_play):
             Sticker(str(uuid4()), sticker_file_id=c.STICKERS_GREY[str(card)],
                     input_message_content=InputTextMessageContent(
                         "Jogando agora: " + display_name(
-                            game.current_player.user) +
+                            game.current_player.user,game) +
                         "\n" +
                         "Última carta: " + repr(game.last_card) + "\n" +
                         "Jogadores: " + " -> ".join(players)))
