@@ -32,20 +32,26 @@ from telegram.ext.dispatcher import run_async
 from telegram.utils.botan import Botan
 
 from game_manager import GameManager
-from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME,ALLOWED
+from credentials import TOKEN, BOTAN_TOKEN,WAIT_TIME,PEDALA_TIME,ALLOWED,API_TIMEOUT
 from start_bot import start_bot
 from results import *
 from utils import *
 import card as c
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG)
+# logging.basicConfig(
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+#     level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 gm = GameManager()
 u = Updater(token=TOKEN, workers=32)
 dp = u.dispatcher
+
+from threading import Lock
+
+mutex = Lock()
+# ranking = {}
+# load_ranking()
 
 botan = False
 if BOTAN_TOKEN:
@@ -89,7 +95,7 @@ source_text = ("This bot is Free Software and licensed under the AGPL. "
 @run_async
 def send_async(bot, *args, **kwargs):
     if 'timeout' not in kwargs:
-        kwargs['timeout'] = 2.5
+        kwargs['timeout'] = API_TIMEOUT
 
     try:
         bot.sendMessage(*args, **kwargs)
@@ -100,7 +106,7 @@ def send_async(bot, *args, **kwargs):
 @run_async
 def answer_async(bot, *args, **kwargs):
     if 'timeout' not in kwargs:
-        kwargs['timeout'] = 2.5
+        kwargs['timeout'] = API_TIMEOUT
 
     try:
         bot.answerInlineQuery(*args, **kwargs)
@@ -115,24 +121,66 @@ def error(bot, update, error):
 
 def new_game(bot, update):
     """ Handler for the /new command """
+    mutex.acquire()
+    try:
+        chat_id = update.message.chat_id
+        
+        if(not int(chat_id) in ALLOWED):
+            send_async(bot, chat_id,
+                       text="Esse chat/grupo não está autorizado a utilizar este bot. Peça para que o chat %d seja liberado." % chat_id)
+            return
+        try:
+            game = gm.chatid_games[chat_id][-1]
+            send_async(bot, chat_id,
+                       text="Ô IMBECIL! Já tem jogo acontecendo aqui.")
+            return
+        except KeyError:
+            pass
+
+        if update.message.chat.type == 'private':
+            help(bot, update)
+        else:
+            game = gm.new_game(update.message.chat)
+            game.owner = update.message.from_user
+            send_async(bot, chat_id,
+                       text="Jogo criado! Entre no jogo usando /join "
+                            "e inicie o jogo com /start")
+            if botan:
+                botan.track(update.message, 'New games')
+    finally:
+        mutex.release()
+
+# def load_ranking():
+#     with open('ranking.json') as json_data:
+#         ranking = json.loads(json_data)
+#         json_data.close()
+# 
+# def init_ranking(chat_id)
+#     try:
+#         return ranking[chat_id]
+#     except KeyError:
+#         ranking[chat_id] = {}
+#         return ranking[chat_id]
+
+
+
+def allow_handler(bot, update):
+    """ Handler for the /allow command """
     chat_id = update.message.chat_id
-    
+    message_text = update.message.text.split(' ', 1 )
     if(not int(chat_id) in ALLOWED):
         send_async(bot, chat_id,
-                   text="Esse chat/grupo não está autorizado a utilizar este bot. Peça para que o chat %d seja liberado." % chat_id)
+                   text="Esse chat/grupo não está autorizado a utilizar este bot. Peça para que o chat %d seja liberado." % chat_id,reply_to_message_id=update.message.message_id)
         return
-    
-    if update.message.chat.type == 'private':
-        help(bot, update)
-    else:
-        game = gm.new_game(update.message.chat)
-        game.owner = update.message.from_user
+    try:
+        ALLOWED.append(int(message_text[1]))
         send_async(bot, chat_id,
-                   text="Jogo criado! Entre no jogo usando /join "
-                        "e inicie o jogo com /start")
-        if botan:
-            botan.track(update.message, 'New games')
-
+                   text="Chat %d adicionado com sucesso a lista de permitidos.",
+                   reply_to_message_id=update.message.message_id)
+    except (KeyError, IndexError):
+            send_async(bot, chat_id,
+                   text="Erro ao adicionar novo chat a lista.",reply_to_message_id=update.message.message_id)
+    
 
 def join_game(bot, update):
     """ Handler for the /join command """
@@ -164,6 +212,11 @@ def join_game(bot, update):
 
         joined = gm.join_game(chat_id, user_obj)
         if joined:
+#             try:
+#                 r = ranking[user_obj.id]
+#             except KeyError:
+#                 ranking[user_obj.id] = {'user':user_obj,'wins':0}
+#                 save_ranking()
             if (update.message.from_user.id == user_obj.id):
                 send_async(bot, chat_id,
                             text="Entrou no jogo.",
@@ -203,9 +256,14 @@ def uno_handler(bot, update):
                         reply_to_message_id=update.message.message_id)
                         break
                     else:
-                        player.cards.append(player.game.deck.draw())
-                        send_async(bot, chat_id, text="Burra! Nem tá com uma carta e tá gritando UNO... Toma uma carta e vê se aprende!",
-                        reply_to_message_id=update.message.message_id)
+                        if(player.unoDrawn):
+                            send_async(bot, chat_id, text="Burra! Nem tá com uma carta e tá gritando UNO...",
+                                        reply_to_message_id=update.message.message_id)
+                        else:
+                            player.unoDrawn = True
+                            player.cards.append(player.game.deck.draw())
+                            send_async(bot, chat_id, text="Burra! Nem tá com uma carta e tá gritando UNO... Toma uma carta e vê se aprende!",
+                                        reply_to_message_id=update.message.message_id)
                         break
         if not jogando:
             send_async(bot, chat_id, text="Você nem está jogando.",
@@ -244,9 +302,9 @@ def leave_game(bot, update):
             game.choose_color(result_id)
             send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
         if not player is None:
-            gm.leave_game(user, chat_id)
             if(len(player.cards) < 15):
                 game.anti_pedalada[user.id] = datetime.now()
+            gm.leave_game(user, chat_id)
             if(game.started):
                 send_async(bot, chat_id,
                            text="Tchau, querida! Próximo jogador: " +
@@ -281,7 +339,7 @@ def select_game(bot, update):
     bot.answerCallbackQuery(update.callback_query.id,
                             text="Vai jogar no grupo que você escolheu.",
                             show_alert=False,
-                            timeout=2.5)
+                            timeout=API_TIMEOUT)
     bot.editMessageText(chat_id=update.callback_query.message.chat_id,
                         message_id=update.callback_query.message.message_id,
                         text="Grupo escolhido: %s\n"
@@ -290,7 +348,7 @@ def select_game(bot, update):
                              % gm.userid_current[user_id].game.chat.title,
                         reply_markup=InlineKeyboardMarkup(back),
                         parse_mode=ParseMode.HTML,
-                        timeout=2.5)
+                        timeout=API_TIMEOUT)
 
 
 def status_update(bot, update):
@@ -308,8 +366,8 @@ def status_update(bot, update):
                                           % display_name(user))
 
 def start_game_fouyer(bot, update, args):
-    start_game(bot, update, args)
-    
+    game = start_game(bot, update, args)
+    game.fouyer = True
 
 
 def start_game(bot, update, args):
@@ -336,11 +394,12 @@ def start_game(bot, update, args):
             game.started = True
             bot.sendSticker(chat_id,
                             sticker=c.STICKERS[str(game.last_card)],
-                            timeout=2.5)
+                            timeout=API_TIMEOUT)
             send_async(bot, chat_id, 
                        text="%s começa jogando.\n"
                             "Use /close para impedir que mais pessoas entrem no jogo."
                             % display_name(game.current_player.user))
+            return game
     elif len(args) and args[0] == 'select':
         players = gm.userid_players[update.message.from_user.id]
 
@@ -488,6 +547,19 @@ def source(bot, update):
     send_async(bot, update.message.chat_id, text=source_text,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
+# def ranking(bot,update):
+#     chat_id = update.message.chat_id
+#     user = update.message.from_user
+#     games = gm.chatid_games.get(chat_id)
+#     for game in games:
+#         rank = ''
+#         for p in ranking[chat_id]:
+#             rank.append("%s - %d vitória(s)" % (display_name(p['user']),int(p['wins'])))
+#         send_async(bot, chat_id, text="Ranking:\n" + 
+#                 rank,
+#                 reply_to_message_id=update.message.message_id)
+
+
 def stats(bot,update):
     chat_id = update.message.chat_id
     user = update.message.from_user
@@ -634,11 +706,19 @@ def do_play_card(bot, chat_id, game, player, result_id, user):
     player.cards.remove(card)
     if len(player.cards) == 1:
         player.uno = True
+        player.unoDrawn = False
         #send_async(bot, chat_id, text="UNO!")
-    if len(player.cards) == 0:
+    elif len(player.cards) == 0:
         if(game.playerWhichIsBluffing != None and game.playerWhichIsBluffing.user.id is player.user.id):
             game.playerWhichIsBluffing = None
-        send_async(bot, chat_id, text="%s ganhou, esse prodígio!" % display_name(user))
+        wins = 1
+#         try:
+#             wins = ranking[user.id]['wins'] + 1
+#             ranking[user.id]['wins'] = wins
+#             save_ranking()
+#         except KeyError:
+#             wins = 1
+        send_async(bot, chat_id, text="%s ganhou, esse prodígio!\nTotal de vitórias: %d" % (display_name(user),wins))
         if(game.choosing_color):
             game.choosing_color = False
             result_id = choice(c.COLORS)
@@ -672,6 +752,7 @@ def do_draw(game, player):
 
 def do_call_bluff(bot, chat_id, game, player):
     bluffer = game.playerWhichIsBluffing
+    check_uno(bot, chat_id, player.prev)
     if game.playerIsBluffing:
         send_async(bot, chat_id, text="PEGO NO BLEFE! Dando %d cartas de brinde para o %s."
                                       % (game.draw_counter, display_name(bluffer.user)))
@@ -705,7 +786,10 @@ dp.addHandler(CommandHandler('help', help))
 dp.addHandler(CommandHandler('source', source))
 dp.addHandler(CommandHandler('news', news))
 dp.addHandler(CommandHandler('uno', uno_handler))
+dp.addHandler(CommandHandler('allow', allow_handler))
 dp.addHandler(CommandHandler('stats', stats))
+#dp.addHandler(CommandHandler('pedala', pedala))
+# dp.addHandler(CommandHandler('ranking', ranking))
 dp.addHandler(MessageHandler([Filters.status_update], status_update))
 dp.addErrorHandler(error)
 

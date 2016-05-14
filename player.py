@@ -58,6 +58,7 @@ class Player(object):
         self.turn_started = datetime.now()
         self.waiting_time = WAIT_TIME
         self.uno = False
+        self.unoDrawn = False
 
     def leave(self):
         """ Leave the current game """
