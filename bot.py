@@ -325,9 +325,9 @@ def leave_game(bot, update):
     user = update.message.from_user
 
     if game.started and len(game.players) < 3:
-    	player = gm.get_player_by_id(user, chat_id)
-    	w_user = player.prev.user
-    	wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
+        player = gm.get_player_by_id(user, chat_id)
+        w_user = player.prev.user
+        wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
         ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
         save_ranking()
         order_chat_rank(chat_id)
