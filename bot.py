@@ -773,6 +773,7 @@ def check_uno(bot, chat_id, player):
 
 def do_play_card(bot, chat_id, game, player, result_id, user):
     global ranking
+    game.ranking = init_ranking(chat_id)
     card = c.from_str(result_id)
     game.play_card(card)
     player.cards.remove(card)
