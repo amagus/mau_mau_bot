@@ -324,13 +324,14 @@ def leave_game(bot, update):
 
     user = update.message.from_user
 
-    if game.started and len(game.players) < 3:
-        player = gm.get_player_by_id(user, chat_id)
-        w_user = player.prev.user
-        wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
-        ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
-        save_ranking()
-        order_chat_rank(chat_id)
+    if len(game.players) < 3:
+        if game.started:
+            player = gm.get_player_by_id(user, chat_id)
+            w_user = player.prev.user
+            wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
+            ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
+            save_ranking()
+            order_chat_rank(chat_id)
         gm.end_game(chat_id, user)
         send_async(bot, chat_id, text="Fim de jogo!\n%s ganhou por ser o último a sobrar. Deu sorte.\nTotal de vitórias: %d" % (display_name(w_user),wins))
     else:
@@ -576,6 +577,7 @@ def skip_player(bot, update):
                 else:
                     player = gm.get_player_by_id(user, chat_id)
                     w_user = game.current_player.prev.user
+                    gm.end_game(chat_id, game.current_player.user)
                     wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
                     ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
                     save_ranking()
@@ -585,8 +587,6 @@ def skip_player(bot, update):
                                text="%s ficou sem sinal, bateria ou morreu."
                                     "Ele foi removido do jogo e por isso o jogo acabou :(\n%s ganhou uma vitória por ser o último a sobrar.\nTotal de vitórias: %d"
                                     % (display_name(game.current_player.user,game),display_name(w_user,game),wins))
-
-                    gm.end_game(chat_id, game.current_player.user)
                     return
 
 
