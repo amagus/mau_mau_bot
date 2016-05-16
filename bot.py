@@ -574,6 +574,13 @@ def skip_player(bot, update):
                     gm.leave_game(game.current_player.user, chat_id)
                     return
                 else:
+                    player = gm.get_player_by_id(user, chat_id)
+                    w_user = player.prev.user
+                    wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
+                    ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
+                    save_ranking()
+                    order_chat_rank(chat_id)
+
                     send_async(bot, chat_id,
                                text="%s ficou sem sinal, bateria ou morreu."
                                     "Ele foi removido do jogo e por isso o jogo acabou :(\n"
@@ -820,6 +827,7 @@ def do_draw(game, player):
     game.playerWhichIsBluffing = None
     game.draw_counter = 0
     player.drew = True
+    player.uno = False
     if (game.last_card.value == c.DRAW_TWO or
         game.last_card.special == c.DRAW_FOUR) and \
             draw_counter_before > 0:
