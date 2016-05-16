@@ -575,7 +575,7 @@ def skip_player(bot, update):
                     return
                 else:
                     player = gm.get_player_by_id(user, chat_id)
-                    w_user = player.prev.user
+                    w_user = game.current_player.prev.user
                     wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
                     ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
                     save_ranking()
@@ -583,8 +583,8 @@ def skip_player(bot, update):
 
                     send_async(bot, chat_id,
                                text="%s ficou sem sinal, bateria ou morreu."
-                                    "Ele foi removido do jogo e por isso o jogo acabou :(\n"
-                                    % display_name(game.current_player.user,game))
+                                    "Ele foi removido do jogo e por isso o jogo acabou :(\n%s ganhou uma vitória por ser o último a sobrar.\nTotal de vitórias: %d"
+                                    % (display_name(game.current_player.user,game),display_name(w_user,game),wins))
 
                     gm.end_game(chat_id, game.current_player.user)
                     return
