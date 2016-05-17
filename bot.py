@@ -204,7 +204,7 @@ def allow_handler(bot, update):
     try:
         ALLOWED.append(int(message_text[1]))
         send_async(bot, chat_id,
-                   text="Chat %d adicionado com sucesso a lista de permitidos.",
+                   text="Chat %d adicionado com sucesso a lista de permitidos." % chat_id,
                    reply_to_message_id=update.message.message_id)
     except (KeyError, IndexError):
             send_async(bot, chat_id,
