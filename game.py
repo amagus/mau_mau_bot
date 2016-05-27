@@ -34,6 +34,7 @@ class Game(object):
     owner = None
     open = True
     fouyer = False
+    hidden = False
     ranking = {}
     playerIsBluffing = False
     playerWhichIsBluffing = None  
@@ -75,11 +76,14 @@ class Game(object):
         self.logger.debug("Next Player")
         self.current_player = self.current_player.next
         self.current_player.drew = False
+        self.current_player.hiddenDrew = False
         self.current_player.turn_started = datetime.now()
         
     def set_fouyer(self, fouyer_bool):
         self.fouyer = fouyer_bool
     
+    def set_hidden(self, hidden_bool):
+        self.hidden = hidden_bool
 
     def play_card(self, card):
         """ Play a card and trigger its effects """

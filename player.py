@@ -54,6 +54,7 @@ class Player(object):
 
         self.bluffing = False
         self.drew = False
+        self.hiddenDrew = False
         self.anti_cheat = 0
         self.turn_started = datetime.now()
         self.waiting_time = WAIT_TIME
@@ -103,7 +104,7 @@ class Player(object):
         else:
             self._next = player
 
-    def playable_cards(self):
+    def playable_cards(self,isRec=False):
         """ Returns a list of the cards this player can play right now """
 
         playable = list()
@@ -112,8 +113,8 @@ class Player(object):
         self.logger.debug("Last card was " + str(last))
 
         cards = self.cards
-        if self.drew:
-            cards = self.cards[-1:]
+#         if self.drew:
+#             cards = self.cards[-1:]
 
         # You may only play a +4 if you have no cards to play
         self.bluffing = False
@@ -124,10 +125,14 @@ class Player(object):
         
                
         if not self.drew: #Se comeu, o valor do blefe é mantido.
-        	self.bluffing = False;
-	        for card in playable:
-	        	if(card.special != c.DRAW_FOUR):
-	        		self.bluffing = True
+            self.bluffing = False;
+            for card in playable:
+                if(card.special != c.DRAW_FOUR):
+                    self.bluffing = True
+        if not isRec and self.game.hidden and not self.hiddenDrew and self.game.draw_counter == 0 and len(playable) == 0:
+            self.hiddenDrew = True;
+            self.cards.append(self.game.deck.draw())
+            return self.playable_cards(True);
                         
         #self.bluffing = len(playable) > 0
         # You may not play a chooser or +4 as your last card
@@ -148,12 +153,12 @@ class Player(object):
             self.logger.debug("Card's color or value doesn't match")
             is_playable = False
         elif last.value == c.DRAW_TWO and self.game.draw_counter:
-        	if(card.value != c.DRAW_TWO and card.special != c.DRAW_FOUR):
-        		is_playable = False
-        	if(self.game.fouyer and card.special == c.DRAW_FOUR):
-        		is_playable = False
+            if(card.value != c.DRAW_TWO and card.special != c.DRAW_FOUR):
+                is_playable = False
+            if(self.game.fouyer and card.special == c.DRAW_FOUR):
+                is_playable = False
         elif last.special == c.DRAW_FOUR and self.game.draw_counter:
-        	is_playable = ((card.value == c.DRAW_TWO and card.color == last.color) or card.special == c.DRAW_FOUR)
+            is_playable = ((card.value == c.DRAW_TWO and card.color == last.color) or card.special == c.DRAW_FOUR)
 #         
 #         
 #         

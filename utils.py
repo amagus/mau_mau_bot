@@ -19,6 +19,36 @@
 
 from telegram import Emoji
 
+def player_list(game):
+    players = list()
+    for player in game.players:
+        if(game.hidden):
+            add_player_hidden(player, players)
+        else:
+            add_player(player, players)
+    return players
+    
+
+def add_player(itplayer, players):
+    players.append(itplayer.user.first_name + " (%d cartas)"
+                   % len(itplayer.cards))
+
+def add_player_hidden(itplayer, players):
+    players.append(itplayer.user.first_name)
+
+
+def show_stats(game):
+    if game.started:
+        players = player_list(game)
+        return ("Jogando agora: " + 
+                    display_name(game.current_player.user,game) +
+                    "\n" +
+                    "Última carta: " + repr(game.last_card) + "\n" +
+                    "Jogadores: " + " -> ".join(players)
+                )
+    else:
+        return "Nada está sendo jogado aqui.\nTente mais tarde!"
+
 
 def list_subtract(list1, list2):
     """ Helper function to subtract two lists and return the sorted result """
@@ -45,15 +75,31 @@ def display_name_with_rank(user,rank):
             most_wins = int(rank['most'])
         except (IndexError, KeyError):
             most_wins = 0
+        
+        most_wins_week = 0
+        try:
+            most_wins_week = int(rank['most_week'])
+        except (IndexError, KeyError):
+            most_wins_week = 0
+        
             
         user_wins = 0
         try:
             user_wins = int(rank['players']["user_" + str(user['id'])]['wins'])
         except (IndexError, KeyError):
             user_wins = 0
+            
+        user_wins_week = 0
+        try:
+            user_wins_week = int(rank['players']["user_" + str(user['id'])]['wins_week'])
+        except (IndexError, KeyError):
+            user_wins_week = 0
         
         if user_wins >= most_wins:
             user_name += Emoji.TROPHY
+        
+        if user_wins_week >= most_wins_week:
+            user_name += '🏅'
     
     user_name += user['first_name']
     if user['username']:

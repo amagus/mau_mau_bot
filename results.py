@@ -43,28 +43,15 @@ def add_other_cards(playable, player, results, game):
     if not playable:
         playable = list()
 
-    players = player_list(game)
-
     results.append(
         InlineQueryResultArticle(
             "hand",
             title="Cartas (selecione para estado do jogo):",
             description=', '.join([repr(card) for card in
                                    list_subtract(player.cards, playable)]),
-            input_message_content=InputTextMessageContent(
-                "Jogando agora: " + display_name(game.current_player.user,game) +
-                "\n" +
-                "Última carta: " + repr(game.last_card) + "\n" +
-                "Jogadores: " + " -> ".join(players))
+            input_message_content=InputTextMessageContent(show_stats(game))
         )
     )
-
-
-def player_list(game):
-    players = list()
-    for player in game.players:
-        add_player(player, players)
-    return players
 
 
 def add_no_game(results):
@@ -73,7 +60,7 @@ def add_no_game(results):
             "nogame",
             title="Você não está jogando!",
             input_message_content=
-            InputTextMessageContent('Você não está jogando! Use /new ou /join.')
+            InputTextMessageContent("Você não está jogando. Quem sabe você não cria um jogo com /new ou dá /join?")
         )
     )
 
@@ -101,17 +88,11 @@ def add_draw(player, results):
 
 
 def add_gameinfo(game, results):
-    players = player_list(game)
-
     results.append(
         Sticker(
             "gameinfo",
             sticker_file_id=c.STICKERS['option_info'],
-            input_message_content=InputTextMessageContent(
-                "Jogando agora: " + display_name(game.current_player.user,game) +
-                "\n" +
-                "Última carta: " + repr(game.last_card) + "\n" +
-                "Jogadores: " + " -> ".join(players))
+            input_message_content=InputTextMessageContent(show_stats(game))
         )
     )
 
@@ -137,8 +118,6 @@ def add_call_bluff(results):
 
 
 def add_play_card(game, card, results, can_play):
-    players = player_list(game)
-
     if can_play:
         results.append(
             Sticker(str(card), sticker_file_id=c.STICKERS[str(card)])
@@ -146,16 +125,6 @@ def add_play_card(game, card, results, can_play):
     else:
         results.append(
             Sticker(str(uuid4()), sticker_file_id=c.STICKERS_GREY[str(card)],
-                    input_message_content=InputTextMessageContent(
-                        "Jogando agora: " + display_name(
-                            game.current_player.user,game) +
-                        "\n" +
-                        "Última carta: " + repr(game.last_card) + "\n" +
-                        "Jogadores: " + " -> ".join(players)))
+                    input_message_content=InputTextMessageContent(show_stats(game))
+            )
         )
-
-
-def add_player(itplayer, players):
-    players.append(itplayer.user.first_name + " (%d cartas)"
-                   % len(itplayer.cards))
-

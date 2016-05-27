@@ -49,8 +49,8 @@ gm = GameManager()
 u = Updater(token=TOKEN, workers=32)
 dp = u.dispatcher
 
-from threading import Lock
-
+from threading import Lock,Timer
+polling = {};
 mutex = Lock()
 ranking = {}
 
@@ -60,44 +60,82 @@ if BOTAN_TOKEN:
 
 def _lambda(d): return namedtuple('X', d.keys())(*d.values())
 
-help_text = ("Follow these steps:\n\n"
-             "1. Add this bot to a group\n"
-             "2. In the group, start a new game with /new or join an already"
-             " running game with /join\n"
-             "3. After at least two players have joined, start the game with"
-             " /start\n"
-             "4. Type <code>@mau_mau_bot</code> into your chat box and hit "
-             "<b>space</b>, or click the <code>via @mau_mau_bot</code> text "
-             "next to messages. You will see your cards (some greyed out), "
-             "any extra options like drawing, and a <b>?</b> to see the "
-             "current game state. The <b>greyed out cards</b> are those you "
-             "<b>can not play</b> at the moment. Tap an option to execute "
-             "the selected action.\n"
-             "Players can join the game at any time. To leave a game, "
-             "use /leave. If a player takes more than 90 seconds to play, "
-             "you can use /skip to skip that player.\n\n"
-             "Other commands (only game creator):\n"
-             "/close - Close lobby\n"
-             "/open - Open lobby\n\n"
-             "<b>Experimental:</b> Play in multiple groups at the same time. "
-             "Press the <code>Current game: ...</code> button and select the "
-             "group you want to play a card in.\n"
-             "If you enjoy this bot, "
-             "<a href=\"https://telegram.me/storebot?start=mau_mau_bot\">"
-             "rate me</a>, join the "
-             "<a href=\"https://telegram.me/unobotupdates\">update channel</a>"
-             " and buy an UNO card game.\n")
+help_text = ("Don't ask for help.")
 
 source_text = ("This bot is Free Software and licensed under the AGPL. "
                "The code is available here: \n"
                "https://github.com/jh0ker/mau_mau_bot")
 
+def poll_Timer():
+    global polling
+    global mutex
+    willBeDeleted = [];
+    for chat in polling:
+        poll = polling[chat]
+        text = []
+        if len(poll) > 0:
+            bot = poll[0][0];
+            chat_id = poll[0][1][0]
+            if len(poll) > 1:
+                for msg in poll:
+                    text.append(msg[2]['text'])
+                full_text = "\n".join(text)
+                real_send_async(bot,chat_id,text=full_text);
+            else:
+                args = poll[0][2];
+                if('reply_to_message_id' in args):
+                    real_send_async(bot,chat_id,text=args['text'],
+                                        reply_to_message_id=args['reply_to_message_id']);
+                else:
+                    real_send_async(bot,chat_id,text=args['text']);
+            
+            
+        willBeDeleted.append(chat);
+    mutex.acquire()
+    try:
+        for chat in willBeDeleted:
+            del polling[chat]
+    finally:
+        mutex.release()
+    start_new_timer();
+
+@run_async
+def start_new_timer():
+	global poll_Timer
+	pollT = Timer(5, poll_Timer)
+	pollT.daemon = True
+	pollT.start()
+
+start_new_timer();
 
 @run_async
 def send_async(bot, *args, **kwargs):
+    global polling
+    global mutex
+    try:
+        poll = polling['chat_' + str(args[0])]
+    except (KeyError, IndexError):
+        mutex.acquire()
+        try:
+            polling['chat_' + str(args[0])] = []
+        finally:
+            mutex.release()
+        poll = polling['chat_' + str(args[0])]
+     
+    msg = [bot,args,kwargs]
+    
+    mutex.acquire()
+    try:
+        poll.append(msg);
+    finally:
+        mutex.release()
+    
+    
+def real_send_async(bot, *args, **kwargs):
+    
     if 'timeout' not in kwargs:
         kwargs['timeout'] = API_TIMEOUT
-
+    
     try:
         bot.sendMessage(*args, **kwargs)
     except Exception as e:
@@ -175,21 +213,64 @@ load_ranking()
 
 def sort_ranking(chat_id):
     pass
+    
+def add_win(chat_id,user):
+    rank = init_ranking(chat_id);
+    wins = rank['players']["user_" + str(user.id)]['wins'] + 1
+    rank['players']["user_" + str(user.id)]['wins'] = wins
+    wins_week = rank['players']["user_" + str(user.id)]['wins_week'] + 1
+    rank['players']["user_" + str(user.id)]['wins_week'] = wins_week
+    save_ranking()
+    order_chat_rank(chat_id)
+    order_chat_rank_week(chat_id)
+    return [wins,wins_week]
+
+def order_chat_rank_prop(chat_id,prop,prop_most):
+    global ranking
+    global mutex
+    mutex.acquire()
+    try:
+        load_ranking()
+        rank = init_ranking(chat_id);
+        chat_rank = rank['players']
+        sorted_list = sorted(chat_rank, key=lambda x: chat_rank[x][prop], reverse=True)
+        try:
+            rank[prop_most] = chat_rank[sorted_list[0]][prop]
+        except (KeyError,IndexError):
+            rank[prop_most] = 0
+        save_ranking()
+        return sorted_list
+    finally:
+        mutex.release()
 
 
+def order_chat_rank_week(chat_id):
+    return order_chat_rank_prop(chat_id,'wins_week','most_week');
+
+
+def order_chat_rank(chat_id):
+    return order_chat_rank_prop(chat_id,'wins','most');
 
 
 def init_ranking(chat_id):
     global ranking
     try:
-        return ranking['chat_' + str(chat_id)]
+        rank = ranking['chat_' + str(chat_id)]
+        if not rank['week'] is datetime.now().isocalendar()[1]:
+            for user in rank['players']:
+                rank['players'][user]['wins_week'] = 0
+            rank['week'] = datetime.now().isocalendar()[1]
+            rank['most_week'] = 0
+            save_ranking()            
     except (IndexError, KeyError):
         ranking['chat_' + str(chat_id)] = {}
         ranking['chat_' + str(chat_id)]['most'] = 0;
+        ranking['chat_' + str(chat_id)]['week'] = datetime.now().isocalendar()[1];
+        ranking['chat_' + str(chat_id)]['most_week'] = 0;
         ranking['chat_' + str(chat_id)]['players'] = {};
         save_ranking()
-        return ranking['chat_' + str(chat_id)]
-       
+        rank = ranking['chat_' + str(chat_id)]
+    return rank   
 
 
 
@@ -242,15 +323,19 @@ def join_game(bot, update):
 
         joined = gm.join_game(chat_id, user_obj)
         if joined:
+            rank = init_ranking(chat_id)
+            
             try:
-                user_rank_data = ranking['chat_' + str(chat_id)]['players']["user_" + str(user_obj.id)]
+                user_rank_data = rank['players']["user_" + str(user_obj.id)]
             except (IndexError, KeyError):
                 user_rank_data = {}
                 user_rank_data['wins'] = 0
-                ranking['chat_' + str(chat_id)]['players']["user_" + str(user_obj.id)] = user_rank_data
-            user_rank_data['user'] = {  'first_name': user_obj.first_name,
+                user_rank_data['wins_week'] = 0
+                
+            user_rank_data['user'] = {'first_name': user_obj.first_name,
                                         'username': user_obj.username,
                                         'id': user_obj.id}
+            rank['players']["user_" + str(user_obj.id)] = user_rank_data
             save_ranking()
             if (update.message.from_user.id == user_obj.id):
                 send_async(bot, chat_id,
@@ -328,24 +413,25 @@ def leave_game(bot, update):
         if game.started:
             player = gm.get_player_by_id(user, chat_id)
             w_user = player.prev.user
-            wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
-            ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
-            save_ranking()
-            order_chat_rank(chat_id)
+            wins = add_win(chat_id,w_user)
         gm.end_game(chat_id, user)
-        send_async(bot, chat_id, text="Fim de jogo!\n%s ganhou por ser o último a sobrar. Deu sorte.\nTotal de vitórias: %d" % (display_name(w_user),wins))
+        send_async(bot, chat_id, text="Fim de jogo!\n%s ganhou por ser o último a sobrar. Deu sorte.\nTotal de vitórias: %d (%d essa semana)" % (display_name(w_user),wins[0],wins[1]))
     else:
         player = gm.get_player_by_id(user, chat_id);
-        if game.playerWhichIsBluffing is player:
-            game.playerWhichIsBluffing = None
-        if(game.choosing_color):
-            game.choosing_color = False
-            result_id = choice(c.COLORS)
-            game.choose_color(result_id)
-            send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
         if not player is None:
-            if(len(player.cards) < 15 and game.started):
-                game.anti_pedalada[user.id] = datetime.now()
+            if game.playerWhichIsBluffing is player:
+                game.playerWhichIsBluffing = None
+            if(game.choosing_color and game.current_player is player):
+                game.choosing_color = False
+                result_id = choice(c.COLORS)
+                game.choose_color(result_id)
+                send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
+            if(game.hidden):
+                if(len(player.cards) < 15 and game.started):
+                    game.anti_pedalada[user.id] = datetime.now()
+            else:
+                if(len(player.cards) < 20 and game.started):
+                    game.anti_pedalada[user.id] = datetime.now()
             gm.leave_game(user, chat_id)
             if(game.started):
                 send_async(bot, chat_id,
@@ -415,7 +501,11 @@ def status_update(bot, update):
 
 def start_game_fouyer(bot, update, args):
     game = start_game(bot, update, args)
-    game.fouyer = True
+    game.set_fouyer(True)
+
+def start_game_hidden(bot, update, args):
+    game = start_game(bot, update, args)
+    game.set_hidden(True)
 
 
 def start_game(bot, update, args):
@@ -445,7 +535,6 @@ def start_game(bot, update, args):
                             timeout=API_TIMEOUT)
             send_async(bot, chat_id, 
                        text="%s começa jogando.\n"
-                            "Use /close para impedir que mais pessoas entrem no jogo."
                             % display_name(game.current_player.user,game))
             return game
     elif len(args) and args[0] == 'select':
@@ -552,12 +641,17 @@ def skip_player(bot, update):
                         game.choose_color(result_id)
                         send_async(bot, chat_id, text="Nova cor: %s" % display_color(result_id))
                     else:
-                        game.current_player.cards.append(game.deck.draw())
+                        drawn = game.draw_counter + 1;
+                        for i in range(drawn):
+                            game.current_player.cards.append(game.deck.draw())
+                        game.draw_counter = 0
+                        game.playerWhichIsBluffing = None
                     send_async(bot, chat_id,
-                               text="Na próxima vez, a espera será "
-                                    "de %d seconds.\n"
+                               text="Comprou %d carta(s)\n"
+                                    "Na próxima vez, a espera será "
+                                    "de %d segundos.\n"
                                     "Próximo jogador: %s"
-                                    % (game.current_player.waiting_time,
+                                    % (drawn,game.current_player.waiting_time,
                                        display_name(
                                            game.current_player.next.user,game)))
                     game.turn()
@@ -578,15 +672,13 @@ def skip_player(bot, update):
                     player = gm.get_player_by_id(user, chat_id)
                     w_user = game.current_player.prev.user
                     gm.end_game(chat_id, game.current_player.user)
-                    wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] + 1
-                    ranking['chat_' + str(chat_id)]['players']["user_" + str(w_user.id)]['wins'] = wins
-                    save_ranking()
-                    order_chat_rank(chat_id)
+                    
+                    wins = add_win(chat_id,w_user)
 
                     send_async(bot, chat_id,
                                text="%s ficou sem sinal, bateria ou morreu."
-                                    "Ele foi removido do jogo e por isso o jogo acabou :(\n%s ganhou uma vitória por ser o último a sobrar.\nTotal de vitórias: %d"
-                                    % (display_name(game.current_player.user,game),display_name(w_user,game),wins))
+                                    "Ele foi removido do jogo e por isso o jogo acabou :(\n%s ganhou uma vitória por ser o último a sobrar.\nTotal de vitórias: %d (%d essa semana)"
+                                    % (display_name(game.current_player.user,game),display_name(w_user,game),wins[0],wins[1]))
                     return
 
 
@@ -601,41 +693,28 @@ def source(bot, update):
     send_async(bot, update.message.chat_id, text=source_text,
                parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
-def order_chat_rank(chat_id):
-    global ranking
-    global mutex
-    mutex.acquire()
-    try:
-        load_ranking()
-        chat_rank = ranking['chat_' + str(chat_id)]['players']
-        sorted_list = sorted(chat_rank, key=lambda x: chat_rank[x]['wins'], reverse=True)
-        try:
-            ranking['chat_' + str(chat_id)]['most'] = chat_rank[sorted_list[0]]['wins']
-        except (KeyError,IndexError):
-            ranking['chat_' + str(chat_id)]['most'] = 0
-        save_ranking()
-        return sorted_list
-    finally:
-        mutex.release()
-
 def ranking_handler(bot,update):
     global ranking
     chat_id = update.message.chat_id
-    
-    try:
-        chat_rank = ranking['chat_' + str(chat_id)]['players']
-    except (KeyError,IndexError):
-        init_ranking(chat_id)
-        chat_rank = ranking['chat_' + str(chat_id)]['players']
-    
-    rank = ''
+    rank = init_ranking(chat_id)
+    chat_rank = rank['players']
+       
+    rankText = ''
+    rankText_w = ''
 
+    sorted_list = order_chat_rank_week(chat_id)
+    for p in sorted_list:
+        user = chat_rank[p]
+        rankText_w += ("%s - %d vitória(s)\n" % (display_name_with_rank(user['user'],rank),int(user['wins_week'])))
+        
     sorted_list = order_chat_rank(chat_id)
     for p in sorted_list:
         user = chat_rank[p]
-        rank += ("%s - %d vitória(s)\n" % (display_name_with_rank(user['user'],ranking['chat_' + str(chat_id)]),int(user['wins'])))
-    send_async(bot, chat_id, text="Ranking:\n" + 
-                rank,
+        rankText += ("%s - %d vitória(s)\n" % (display_name_with_rank(user['user'],rank),int(user['wins'])))
+    
+    send_async(bot, chat_id, text="Ranking Semanal:\n" + 
+                rankText_w + "\nRanking Geral:\n" + 
+                rankText ,
                 reply_to_message_id=update.message.message_id)
 
 
@@ -680,7 +759,7 @@ def reply_to_query(bot, update):
         player = gm.userid_current[user_id]
         game = player.game
     except KeyError:
-        add_no_game(results)
+           add_no_game(results)
     else:
         if not game.started:
             add_not_started(results)
@@ -688,11 +767,14 @@ def reply_to_query(bot, update):
             if game.choosing_color:
                 add_choose_color(results)
             else:
-                if not player.drew:
+                if not player.drew and not game.hidden:
                     add_draw(player, results)
 
                 else:
-                    add_pass(results)
+                    if(game.draw_counter > 0):
+                        add_draw(player, results)
+                    else:
+                        add_pass(results)
 
                 if (game.last_card.special == c.DRAW_FOUR and game.draw_counter and not game.playerWhichIsBluffing is None) or (game.last_card.value == c.DRAW_TWO and game.draw_counter and not game.playerWhichIsBluffing is None) and not game.playerWhichIsBluffing is player:
                     add_call_bluff(results)
@@ -797,11 +879,8 @@ def do_play_card(bot, chat_id, game, player, result_id, user):
     elif len(player.cards) == 0:
         if(game.playerWhichIsBluffing != None and game.playerWhichIsBluffing.user.id is player.user.id):
             game.playerWhichIsBluffing = None
-        wins = ranking['chat_' + str(chat_id)]['players']["user_" + str(user.id)]['wins'] + 1
-        ranking['chat_' + str(chat_id)]['players']["user_" + str(user.id)]['wins'] = wins
-        save_ranking()
-        order_chat_rank(chat_id)
-        send_async(bot, chat_id, text="%s ganhou, esse prodígio!\nTotal de vitórias: %d" % (display_name(user,game),wins))
+        wins = add_win(chat_id,user)
+        send_async(bot, chat_id, text="%s ganhou, esse prodígio!\nTotal de vitórias: %d (%d essa semana)" % (display_name(user,game),wins[0],wins[1]))
         if(game.choosing_color):
             game.choosing_color = False
             result_id = choice(c.COLORS)
@@ -860,6 +939,7 @@ dp.addHandler(ChosenInlineResultHandler(process_result))
 dp.addHandler(CallbackQueryHandler(select_game))
 dp.addHandler(CommandHandler('start', start_game, pass_args=True))
 dp.addHandler(CommandHandler('startfouyer', start_game_fouyer, pass_args=True))
+dp.addHandler(CommandHandler('starthidden', start_game_hidden, pass_args=True))
 dp.addHandler(CommandHandler('new', new_game))
 dp.addHandler(CommandHandler('join', join_game))
 dp.addHandler(CommandHandler('leave', leave_game))
